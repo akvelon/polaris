@@ -121,6 +121,7 @@ import org.apache.polaris.core.storage.PolarisStorageConfigurationInfo;
 import org.apache.polaris.core.storage.StorageLocation;
 import org.apache.polaris.core.storage.aws.AwsStorageConfigurationInfo;
 import org.apache.polaris.core.storage.azure.AzureStorageConfigurationInfo;
+import org.apache.polaris.service.catalog.GcpExternalCatalogSecurity;
 import org.apache.polaris.service.config.ReservedProperties;
 import org.apache.polaris.service.types.PolicyIdentifier;
 import org.jspecify.annotations.NonNull;
@@ -921,9 +922,10 @@ public class PolarisAdminService {
           realmConfig, updateRequest.getStorageConfigInfo(), defaultBaseLocation);
     }
     CatalogEntity updatedEntity = updateBuilder.build();
+    Catalog updatedCatalog = updatedEntity.asCatalog(getServiceIdentityProvider());
 
-    BigLakeCatalogValidator.validate(
-        realmConfig, updatedEntity.asCatalog(getServiceIdentityProvider()));
+    GcpExternalCatalogSecurity.validateNoSensitiveProperties(updatedCatalog);
+    BigLakeCatalogValidator.validate(realmConfig, updatedCatalog);
     validateUpdateCatalogDiffOrThrow(currentCatalogEntity, updatedEntity);
 
     if (catalogOverlapsWithExistingCatalog(updatedEntity)) {
@@ -2344,3 +2346,7 @@ public class PolarisAdminService {
     }
   }
 }
+
+
+
+

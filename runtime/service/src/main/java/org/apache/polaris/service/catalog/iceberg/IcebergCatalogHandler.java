@@ -121,6 +121,7 @@ import org.apache.polaris.immutables.PolarisImmutable;
 import org.apache.polaris.service.catalog.AccessDelegationMode;
 import org.apache.polaris.service.catalog.AccessDelegationModeResolver;
 import org.apache.polaris.service.catalog.CatalogPrefixParser;
+import org.apache.polaris.service.catalog.GcpExternalCatalogSecurity;
 import org.apache.polaris.service.catalog.SupportsNotifications;
 import org.apache.polaris.service.catalog.common.CatalogHandler;
 import org.apache.polaris.service.catalog.common.CatalogUtils;
@@ -269,6 +270,9 @@ public abstract class IcebergCatalogHandler extends CatalogHandler implements Au
         // Pass through catalog properties (e.g., rest.client.proxy.*, timeout settings)
         // to the federated catalog factory for configuration of the underlying HTTP client
         Map<String, String> catalogProperties = resolvedCatalogEntity.getPropertiesAsMap();
+        if (GcpExternalCatalogSecurity.isGcpExternalCatalog(connectionConfigInfoDpo)) {
+          catalogProperties = GcpExternalCatalogSecurity.sanitizePropertyMap(catalogProperties);
+        }
         federatedCatalog =
             federatedCatalogFactory
                 .get()
@@ -1518,8 +1522,12 @@ public abstract class IcebergCatalogHandler extends CatalogHandler implements Au
       throw new NotFoundException("Unable to find warehouse %s", catalogName());
     }
     ResolvedPolarisEntity resolvedReferenceCatalog = resolver.getResolvedReferenceCatalog();
-    Map<String, String> properties =
-        PolarisEntity.of(resolvedReferenceCatalog.getEntity()).getPropertiesAsMap();
+    CatalogEntity referenceCatalogEntity = CatalogEntity.of(resolvedReferenceCatalog.getEntity());
+    Map<String, String> properties = referenceCatalogEntity.getPropertiesAsMap();
+    if (GcpExternalCatalogSecurity.isGcpExternalCatalog(
+        referenceCatalogEntity.getConnectionConfigInfoDpo())) {
+      properties = GcpExternalCatalogSecurity.sanitizePropertyMap(properties);
+    }
 
     return ConfigResponse.builder()
         .withDefaults(properties) // catalog properties are defaults
@@ -1577,3 +1585,7 @@ public abstract class IcebergCatalogHandler extends CatalogHandler implements Au
         .build();
   }
 }
+
+
+
+
