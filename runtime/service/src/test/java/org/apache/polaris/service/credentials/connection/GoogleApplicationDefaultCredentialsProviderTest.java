@@ -29,6 +29,8 @@ import com.google.auth.oauth2.GoogleCredentials;
 import java.io.IOException;
 import java.util.Date;
 import java.util.List;
+import org.apache.polaris.service.exception.BigLakeFailureCategory;
+import org.apache.polaris.service.exception.BigLakeFederationException;
 import org.junit.jupiter.api.Test;
 import org.mockito.MockedStatic;
 import org.mockito.Mockito;
@@ -73,9 +75,16 @@ public class GoogleApplicationDefaultCredentialsProviderTest {
           .thenThrow(new IOException("missing /var/run/secrets/google/service-account.json"));
 
       assertThatThrownBy(provider::validateCredentialsAvailable)
-          .isInstanceOf(IllegalStateException.class)
-          .hasMessageContaining("GOOGLE_APPLICATION_CREDENTIALS")
-          .hasMessageNotContaining("service-account.json");
+          .isInstanceOf(BigLakeFederationException.class)
+          .satisfies(
+              throwable -> {
+                BigLakeFederationException exception = (BigLakeFederationException) throwable;
+                org.assertj.core.api.Assertions.assertThat(exception.category())
+                    .isEqualTo(BigLakeFailureCategory.CREDENTIAL_LOADING);
+                org.assertj.core.api.Assertions.assertThat(exception.getMessage())
+                    .contains("GOOGLE_APPLICATION_CREDENTIALS")
+                    .doesNotContain("service-account.json");
+              });
     }
   }
 
@@ -92,9 +101,16 @@ public class GoogleApplicationDefaultCredentialsProviderTest {
       mockedStatic.when(GoogleCredentials::getApplicationDefault).thenReturn(defaultCredentials);
 
       assertThatThrownBy(provider::validateCredentialsAvailable)
-          .isInstanceOf(IllegalStateException.class)
-          .hasMessageContaining("configured but unusable")
-          .hasMessageNotContaining("secret-project");
+          .isInstanceOf(BigLakeFederationException.class)
+          .satisfies(
+              throwable -> {
+                BigLakeFederationException exception = (BigLakeFederationException) throwable;
+                org.assertj.core.api.Assertions.assertThat(exception.category())
+                    .isEqualTo(BigLakeFailureCategory.TOKEN_ACQUISITION);
+                org.assertj.core.api.Assertions.assertThat(exception.getMessage())
+                    .contains("configured but unusable")
+                    .doesNotContain("secret-project");
+              });
     }
   }
 }

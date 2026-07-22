@@ -253,7 +253,7 @@ public abstract class IcebergCatalogHandler extends CatalogHandler implements Au
     if (connectionConfigInfoDpo != null) {
       LOGGER
           .atInfo()
-          .addKeyValue("remoteUrl", connectionConfigInfoDpo.getUri())
+          .addKeyValue("remoteHost", BigLakeFederatedRestClient.sanitizeRemoteHost(connectionConfigInfoDpo.getUri()))
           .log("Initializing federated catalog");
       FeatureConfiguration.enforceFeatureEnabledOrThrow(
           realmConfig(), FeatureConfiguration.ENABLE_CATALOG_FEDERATION);
@@ -1585,6 +1585,7 @@ public abstract class IcebergCatalogHandler extends CatalogHandler implements Au
         .build();
   }
 }
+
 
 
 
