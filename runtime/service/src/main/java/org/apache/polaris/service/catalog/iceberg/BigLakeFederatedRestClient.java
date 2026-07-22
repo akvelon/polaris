@@ -22,6 +22,7 @@ import com.google.common.base.Strings;
 import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.core.instrument.Tags;
 import io.micrometer.core.instrument.Timer;
+import jakarta.ws.rs.core.Response.Status;
 import java.net.URI;
 import java.time.Duration;
 import java.util.LinkedHashMap;
@@ -223,15 +224,28 @@ final class BigLakeFederatedRestClient implements RESTClient {
       return classified;
     }
 
+    int responseStatus = capture.rawError != null ? capture.rawError.code() : 500;
+    String googleRequestId = firstHeader(capture.responseHeaders, "x-goog-request-id", "x-request-id");
+    String retryAfter = firstHeader(capture.responseHeaders, "retry-after");
+    int retryCount = inferredRetryCount(failure);
     recordFailure(
         operation,
-        capture.rawError != null ? capture.rawError.code() : 500,
+        responseStatus,
         BigLakeFailureCategory.UNKNOWN,
         startedAt,
-        firstHeader(capture.responseHeaders, "x-goog-request-id", "x-request-id"),
-        firstHeader(capture.responseHeaders, "retry-after"),
-        inferredRetryCount(failure));
-    return failure;
+        googleRequestId,
+        retryAfter,
+        retryCount);
+    return new BigLakeFederationException(
+        BigLakeFailureCategory.UNKNOWN,
+        "BigLakeUnknownException",
+        responseStatus > 0 ? responseStatus : Status.INTERNAL_SERVER_ERROR.getStatusCode(),
+        responseStatus,
+        googleRequestId,
+        retryAfter,
+        retryCount,
+        buildUnknownFailureMessage(responseStatus, googleRequestId, retryAfter),
+        failure);
   }
 
   private void recordSuccess(BigLakeOperationType operation, int responseStatus, long startedAt) {
@@ -351,6 +365,25 @@ final class BigLakeFederatedRestClient implements RESTClient {
     } catch (NumberFormatException e) {
       return defaultValue;
     }
+  }
+
+  private static String buildUnknownFailureMessage(
+      int responseStatus, String googleRequestId, String retryAfter) {
+    StringBuilder builder =
+        new StringBuilder(
+            "BigLake returned an unexpected response that Polaris could not classify safely."
+                + " Review Polaris BigLake outbound request telemetry and the remote service"
+                + " health for more detail.");
+    if (responseStatus > 0) {
+      builder.append(" Remote HTTP status: ").append(responseStatus).append('.');
+    }
+    if (!Strings.isNullOrEmpty(googleRequestId)) {
+      builder.append(" Google request ID: ").append(googleRequestId).append('.');
+    }
+    if (!Strings.isNullOrEmpty(retryAfter)) {
+      builder.append(" Retry-After: ").append(retryAfter).append('.');
+    }
+    return builder.toString();
   }
 
   static String sanitizeRemoteDetail(String message) {

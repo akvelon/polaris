@@ -269,8 +269,12 @@ public abstract class IcebergCatalogHandler extends CatalogHandler implements Au
       if (federatedCatalogFactory.isResolvable()) {
         // Pass through catalog properties (e.g., rest.client.proxy.*, timeout settings)
         // to the federated catalog factory for configuration of the underlying HTTP client
-        Map<String, String> catalogProperties = resolvedCatalogEntity.getPropertiesAsMap();
+        Map<String, String> catalogProperties =
+            new LinkedHashMap<>(resolvedCatalogEntity.getPropertiesAsMap());
         if (GcpExternalCatalogSecurity.isGcpExternalCatalog(connectionConfigInfoDpo)) {
+          catalogProperties.put(
+              BigLakeFederatedRestClient.LOCAL_CATALOG_NAME_PROPERTY,
+              resolvedCatalogEntity.getName());
           catalogProperties = GcpExternalCatalogSecurity.sanitizePropertyMap(catalogProperties);
         }
         federatedCatalog =

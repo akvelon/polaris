@@ -44,7 +44,9 @@ class BigLakeFederatedRestClientTest {
             delegate,
             registry,
             "local-catalog",
-            Map.of(org.apache.iceberg.CatalogProperties.URI, "https://biglake.googleapis.com/iceberg/v1/restcatalog"));
+            Map.of(
+                org.apache.iceberg.CatalogProperties.URI,
+                "https://biglake.googleapis.com/iceberg/v1/restcatalog"));
 
     TestResponse response =
         client.get(
@@ -93,7 +95,9 @@ class BigLakeFederatedRestClientTest {
             delegate,
             registry,
             "local-catalog",
-            Map.of(org.apache.iceberg.CatalogProperties.URI, "https://biglake.googleapis.com/iceberg/v1/restcatalog"));
+            Map.of(
+                org.apache.iceberg.CatalogProperties.URI,
+                "https://biglake.googleapis.com/iceberg/v1/restcatalog"));
 
     assertThatThrownBy(
             () ->
@@ -134,6 +138,104 @@ class BigLakeFederatedRestClientTest {
   }
 
   @Test
+  void classifiesQuotaExhaustionAsRetryable() {
+    SimpleMeterRegistry registry = new SimpleMeterRegistry();
+    FakeRestClient delegate = new FakeRestClient();
+    delegate.errorResponse =
+        ErrorResponse.builder()
+            .responseCode(429)
+            .withType("TooManyRequests")
+            .withMessage("quota exceeded for billing project")
+            .build();
+    delegate.responseHeaders = Map.of("Retry-After", "30");
+
+    BigLakeFederatedRestClient client =
+        new BigLakeFederatedRestClient(
+            delegate,
+            registry,
+            "local-catalog",
+            Map.of(
+                org.apache.iceberg.CatalogProperties.URI,
+                "https://biglake.googleapis.com/iceberg/v1/restcatalog"));
+
+    assertThatThrownBy(
+            () ->
+                client.get(
+                    "/v1/namespaces/ns/tables/table",
+                    Map.of(),
+                    TestResponse.class,
+                    Map.of(),
+                    error -> {
+                      throw new RuntimeException(error.message());
+                    }))
+        .isInstanceOf(BigLakeFederationException.class)
+        .satisfies(
+            throwable -> {
+              BigLakeFederationException exception = (BigLakeFederationException) throwable;
+              assertThat(exception.category()).isEqualTo(BigLakeFailureCategory.QUOTA_EXHAUSTED);
+              assertThat(exception.category().retryable()).isTrue();
+              assertThat(exception.retryAfter()).isEqualTo("30");
+            });
+  }
+
+  @Test
+  void wrapsUnknownFailuresInSanitizedBigLakeException() {
+    SimpleMeterRegistry registry = new SimpleMeterRegistry();
+    FakeRestClient delegate = new FakeRestClient();
+    delegate.runtimeFailure =
+        new RuntimeException("Malformed payload Authorization: Bearer super-secret-token");
+    delegate.responseHeaders = Map.of("x-goog-request-id", "req-9");
+
+    BigLakeFederatedRestClient client =
+        new BigLakeFederatedRestClient(
+            delegate,
+            registry,
+            "local-catalog",
+            Map.of(
+                org.apache.iceberg.CatalogProperties.URI,
+                "https://biglake.googleapis.com/iceberg/v1/restcatalog"));
+
+    assertThatThrownBy(
+            () ->
+                client.get(
+                    "/v1/namespaces/ns/tables/table",
+                    Map.of(),
+                    TestResponse.class,
+                    Map.of(),
+                    error -> {
+                      throw new RuntimeException(error.message());
+                    }))
+        .isInstanceOf(BigLakeFederationException.class)
+        .satisfies(
+            throwable -> {
+              BigLakeFederationException exception = (BigLakeFederationException) throwable;
+              assertThat(exception.category()).isEqualTo(BigLakeFailureCategory.UNKNOWN);
+              assertThat(exception.errorType()).isEqualTo("BigLakeUnknownException");
+              assertThat(exception.getMessage())
+                  .contains("unexpected response")
+                  .contains("req-9")
+                  .doesNotContain("super-secret-token");
+            });
+
+    assertThat(
+            registry
+                .find("polaris.federation.biglake.requests")
+                .tags(
+                    "operation",
+                    "LOAD_TABLE",
+                    "remote_host",
+                    "biglake.googleapis.com",
+                    "response_status",
+                    "500",
+                    "failure_category",
+                    "UNKNOWN",
+                    "outcome",
+                    "failure")
+                .counter())
+        .isNotNull();
+  }
+
+  @Test
   void sanitizeRemoteDetailRedactsCommonSecrets() {
     String sanitized =
         BigLakeFederatedRestClient.sanitizeRemoteDetail(
@@ -146,6 +248,7 @@ class BigLakeFederatedRestClientTest {
   private static final class FakeRestClient implements RESTClient {
     private TestResponse response;
     private ErrorResponse errorResponse;
+    private RuntimeException runtimeFailure;
     private Map<String, String> responseHeaders = Map.of();
 
     @Override
@@ -180,6 +283,9 @@ class BigLakeFederatedRestClientTest {
         Consumer<ErrorResponse> errorHandler,
         Consumer<Map<String, String>> responseHeadersConsumer) {
       responseHeadersConsumer.accept(responseHeaders);
+      if (runtimeFailure != null) {
+        throw runtimeFailure;
+      }
       if (errorResponse != null) {
         errorHandler.accept(errorResponse);
       }
