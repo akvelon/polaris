@@ -21,13 +21,20 @@ package org.apache.polaris.service.catalog.iceberg;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
+import com.sun.net.httpserver.HttpExchange;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
+import java.io.IOException;
+import java.nio.charset.StandardCharsets;
 import java.util.Map;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Consumer;
+import org.apache.iceberg.rest.HTTPClient;
 import org.apache.iceberg.rest.RESTClient;
 import org.apache.iceberg.rest.RESTRequest;
 import org.apache.iceberg.rest.RESTResponse;
+import org.apache.iceberg.rest.auth.AuthSession;
 import org.apache.iceberg.rest.responses.ErrorResponse;
+import org.apache.polaris.service.distcache.HttpTestServer;
 import org.apache.polaris.service.exception.BigLakeFailureCategory;
 import org.apache.polaris.service.exception.BigLakeFederationException;
 import org.junit.jupiter.api.Test;
@@ -236,6 +243,72 @@ class BigLakeFederatedRestClientTest {
   }
 
   @Test
+  void retriesSupportedTransientFailuresWithConfiguredPolicy() throws IOException {
+    AtomicInteger attempts = new AtomicInteger();
+
+    try (HttpTestServer server =
+            new HttpTestServer(
+                "/v1/config",
+                exchange -> {
+                  int attempt = attempts.incrementAndGet();
+                  sendErrorResponse(
+                      exchange,
+                      503,
+                      "ServiceUnavailable",
+                      "temporarily unavailable",
+                      "req-retry-" + attempt,
+                      "1");
+                });
+        BigLakeFederatedRestClient client = httpBackedClient(server, 2)) {
+      assertThatThrownBy(() -> invokeConfigRequest(client))
+          .isInstanceOf(BigLakeFederationException.class)
+          .satisfies(
+              throwable -> {
+                BigLakeFederationException exception = (BigLakeFederationException) throwable;
+                assertThat(exception.category())
+                    .isEqualTo(BigLakeFailureCategory.SERVICE_UNAVAILABLE);
+                assertThat(exception.category().retryable()).isTrue();
+                assertThat(exception.retryCount()).isEqualTo(2);
+                assertThat(exception.retryAfter()).isEqualTo("1");
+              });
+    }
+
+    assertThat(attempts).hasValue(3);
+  }
+
+  @Test
+  void doesNotRetryNonRetryableFailures() throws IOException {
+    AtomicInteger attempts = new AtomicInteger();
+
+    try (HttpTestServer server =
+            new HttpTestServer(
+                "/v1/config",
+                exchange -> {
+                  attempts.incrementAndGet();
+                  sendErrorResponse(
+                      exchange,
+                      400,
+                      "BadRequest",
+                      "Missing quota project x-goog-user-project",
+                      "req-no-retry",
+                      null);
+                });
+        BigLakeFederatedRestClient client = httpBackedClient(server, 2)) {
+      assertThatThrownBy(() -> invokeConfigRequest(client))
+          .isInstanceOf(BigLakeFederationException.class)
+          .satisfies(
+              throwable -> {
+                BigLakeFederationException exception = (BigLakeFederationException) throwable;
+                assertThat(exception.category())
+                    .isEqualTo(BigLakeFailureCategory.QUOTA_PROJECT_CONFIGURATION);
+                assertThat(exception.retryCount()).isZero();
+              });
+    }
+
+    assertThat(attempts).hasValue(1);
+  }
+
+  @Test
   void sanitizeRemoteDetailRedactsCommonSecrets() {
     String sanitized =
         BigLakeFederatedRestClient.sanitizeRemoteDetail(
@@ -243,6 +316,59 @@ class BigLakeFederatedRestClientTest {
 
     assertThat(sanitized).doesNotContain("test-token").doesNotContain("abc").doesNotContain("def");
     assertThat(sanitized).contains("<redacted>");
+  }
+
+  private static void invokeConfigRequest(BigLakeFederatedRestClient client) {
+    client.get(
+        "/v1/config",
+        Map.of(),
+        TestResponse.class,
+        Map.of(),
+        error -> {
+          throw new RuntimeException(error.message());
+        });
+  }
+
+  private static BigLakeFederatedRestClient httpBackedClient(HttpTestServer server, int maxRetries) {
+    RESTClient delegate =
+        HTTPClient.builder(Map.of("rest.client.max-retries", Integer.toString(maxRetries)))
+            .uri(server.getUri().toString())
+            .withAuthSession(AuthSession.EMPTY)
+            .build();
+    return new BigLakeFederatedRestClient(
+        delegate,
+        new SimpleMeterRegistry(),
+        "local-catalog",
+        Map.of(
+            org.apache.iceberg.CatalogProperties.URI,
+            server.getUri().toString(),
+            "rest.client.max-retries",
+            Integer.toString(maxRetries)));
+  }
+
+  private static void sendErrorResponse(
+      HttpExchange exchange,
+      int status,
+      String type,
+      String message,
+      String requestId,
+      String retryAfter)
+      throws IOException {
+    byte[] body =
+        String.format(
+                "{\"error\":{\"message\":\"%s\",\"type\":\"%s\",\"code\":%d}}",
+                message, type, status)
+            .getBytes(StandardCharsets.UTF_8);
+
+    exchange.getResponseHeaders().add("Content-Type", "application/json");
+    exchange.getResponseHeaders().add("x-goog-request-id", requestId);
+    if (retryAfter != null) {
+      exchange.getResponseHeaders().add("Retry-After", retryAfter);
+    }
+    exchange.sendResponseHeaders(status, body.length);
+    try (var responseBody = exchange.getResponseBody()) {
+      responseBody.write(body);
+    }
   }
 
   private static final class FakeRestClient implements RESTClient {
