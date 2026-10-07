@@ -547,7 +547,8 @@ public class ManagementServiceTest {
         new DefaultServiceIdentityProvider(),
         principal,
         new PolarisAuthorizerImpl(services.realmConfig()),
-        ReservedProperties.NONE);
+        ReservedProperties.NONE,
+        List.of(new BigLakeCatalogValidator()));
   }
 
   private Catalog createBigLakeCatalog(

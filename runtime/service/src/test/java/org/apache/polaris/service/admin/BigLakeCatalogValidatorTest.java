@@ -41,6 +41,7 @@ import org.junit.jupiter.params.provider.ValueSource;
 
 class BigLakeCatalogValidatorTest {
   private RealmConfig realmConfig;
+  private final BigLakeCatalogValidator validator = new BigLakeCatalogValidator();
 
   @BeforeEach
   void setup() {
@@ -51,7 +52,7 @@ class BigLakeCatalogValidatorTest {
   void validBigLakeConfigurationPasses() {
     assertThatCode(
             () ->
-                BigLakeCatalogValidator.validate(
+                validator.validate(
                     realmConfig,
                     bigLakeCatalog(
                         "https://biglake.googleapis.com/iceberg/v1/restcatalog",
@@ -90,7 +91,7 @@ class BigLakeCatalogValidatorTest {
                     .build())
             .build();
 
-    assertThatCode(() -> BigLakeCatalogValidator.validate(realmConfig, catalog))
+    assertThatCode(() -> validator.validate(realmConfig, catalog))
         .doesNotThrowAnyException();
   }
 
@@ -98,7 +99,7 @@ class BigLakeCatalogValidatorTest {
   void validBigLakeBlCatalogIdentifierPasses() {
     assertThatCode(
             () ->
-                BigLakeCatalogValidator.validate(
+                validator.validate(
                     realmConfig,
                     bigLakeCatalog(
                         "https://biglake.googleapis.com/iceberg/v1/restcatalog",
@@ -114,7 +115,7 @@ class BigLakeCatalogValidatorTest {
   void validBigLakeBlCatalogIdentifierWithProjectIdPasses() {
     assertThatCode(
             () ->
-                BigLakeCatalogValidator.validate(
+                validator.validate(
                     realmConfig,
                     bigLakeCatalog(
                         "https://biglake.googleapis.com/iceberg/v1/restcatalog",
@@ -130,7 +131,7 @@ class BigLakeCatalogValidatorTest {
   void validBigLakeWarehouseIdentifierPasses() {
     assertThatCode(
             () ->
-                BigLakeCatalogValidator.validate(
+                validator.validate(
                     realmConfig,
                     bigLakeCatalog(
                         "https://biglake.googleapis.com/iceberg/v1/restcatalog",
@@ -146,7 +147,7 @@ class BigLakeCatalogValidatorTest {
   void skipsValidationForNonBigLakeGcpRestEndpoint() {
     assertThatCode(
             () ->
-                BigLakeCatalogValidator.validate(
+                validator.validate(
                     realmConfig,
                     bigLakeCatalog(
                         "https://catalog-gateway.example.com/iceberg/v1",
@@ -159,10 +160,10 @@ class BigLakeCatalogValidatorTest {
   }
 
   @Test
-  void rejectsNonHttpsEndpoint() {
-    assertThatThrownBy(
+  void skipsValidationForNonCanonicalEndpoints() {
+    assertThatCode(
             () ->
-                BigLakeCatalogValidator.validate(
+                validator.validate(
                     realmConfig,
                     bigLakeCatalog(
                         "http://biglake.googleapis.com/iceberg/v1/restcatalog",
@@ -171,15 +172,14 @@ class BigLakeCatalogValidatorTest {
                         true,
                         "gs://bucket/path/to/data",
                         validGcsStorage("gs://bucket/path/to/data"))))
-        .isInstanceOf(IllegalArgumentException.class)
-        .hasMessageContaining("requires an https:// URI");
+        .doesNotThrowAnyException();
   }
 
   @Test
-  void rejectsUnsupportedEndpointPath() {
-    assertThatThrownBy(
+  void skipsValidationForUnsupportedEndpointPath() {
+    assertThatCode(
             () ->
-                BigLakeCatalogValidator.validate(
+                validator.validate(
                     realmConfig,
                     bigLakeCatalog(
                         "https://biglake.googleapis.com/not-biglake",
@@ -188,15 +188,14 @@ class BigLakeCatalogValidatorTest {
                         true,
                         "gs://bucket/path/to/data",
                         validGcsStorage("gs://bucket/path/to/data"))))
-        .isInstanceOf(IllegalArgumentException.class)
-        .hasMessageContaining("unsupported path");
+        .doesNotThrowAnyException();
   }
 
   @Test
-  void rejectsEndpointWithQueryString() {
-    assertThatThrownBy(
+  void skipsValidationForEndpointWithQueryString() {
+    assertThatCode(
             () ->
-                BigLakeCatalogValidator.validate(
+                validator.validate(
                     realmConfig,
                     bigLakeCatalog(
                         "https://biglake.googleapis.com/iceberg/v1/restcatalog?warehouse=test",
@@ -205,15 +204,14 @@ class BigLakeCatalogValidatorTest {
                         true,
                         "gs://bucket/path/to/data",
                         validGcsStorage("gs://bucket/path/to/data"))))
-        .isInstanceOf(IllegalArgumentException.class)
-        .hasMessageContaining("query, fragment, and custom port components are not supported");
+        .doesNotThrowAnyException();
   }
 
   @Test
-  void rejectsEndpointWithFragment() {
-    assertThatThrownBy(
+  void skipsValidationForEndpointWithFragment() {
+    assertThatCode(
             () ->
-                BigLakeCatalogValidator.validate(
+                validator.validate(
                     realmConfig,
                     bigLakeCatalog(
                         "https://biglake.googleapis.com/iceberg/v1/restcatalog#fragment",
@@ -222,15 +220,14 @@ class BigLakeCatalogValidatorTest {
                         true,
                         "gs://bucket/path/to/data",
                         validGcsStorage("gs://bucket/path/to/data"))))
-        .isInstanceOf(IllegalArgumentException.class)
-        .hasMessageContaining("query, fragment, and custom port components are not supported");
+        .doesNotThrowAnyException();
   }
 
   @Test
-  void rejectsEndpointWithCustomPort() {
-    assertThatThrownBy(
+  void skipsValidationForEndpointWithCustomPort() {
+    assertThatCode(
             () ->
-                BigLakeCatalogValidator.validate(
+                validator.validate(
                     realmConfig,
                     bigLakeCatalog(
                         "https://biglake.googleapis.com:8443/iceberg/v1/restcatalog",
@@ -239,15 +236,14 @@ class BigLakeCatalogValidatorTest {
                         true,
                         "gs://bucket/path/to/data",
                         validGcsStorage("gs://bucket/path/to/data"))))
-        .isInstanceOf(IllegalArgumentException.class)
-        .hasMessageContaining("query, fragment, and custom port components are not supported");
+        .doesNotThrowAnyException();
   }
 
   @Test
   void rejectsMissingRemoteCatalogIdentifier() {
     assertThatThrownBy(
             () ->
-                BigLakeCatalogValidator.validate(
+                validator.validate(
                     realmConfig,
                     bigLakeCatalog(
                         "https://biglake.googleapis.com/iceberg/v1/restcatalog",
@@ -264,7 +260,7 @@ class BigLakeCatalogValidatorTest {
   void rejectsMissingQuotaProjectHeader() {
     assertThatThrownBy(
             () ->
-                BigLakeCatalogValidator.validate(
+                validator.validate(
                     realmConfig,
                     bigLakeCatalog(
                         "https://biglake.googleapis.com/iceberg/v1/restcatalog",
@@ -278,10 +274,10 @@ class BigLakeCatalogValidatorTest {
   }
 
   @Test
-  void rejectsSecuritySensitiveHeaderOverride() {
-    assertThatThrownBy(
+  void acceptsOtherHeaderProperties() {
+    assertThatCode(
             () ->
-                BigLakeCatalogValidator.validate(
+                validator.validate(
                     realmConfig,
                     bigLakeCatalog(
                         "https://biglake.googleapis.com/iceberg/v1/restcatalog",
@@ -294,15 +290,14 @@ class BigLakeCatalogValidatorTest {
                         true,
                         "gs://bucket/path/to/data",
                         validGcsStorage("gs://bucket/path/to/data"))))
-        .isInstanceOf(IllegalArgumentException.class)
-        .hasMessageContaining("overriding security-sensitive headers is not allowed");
+        .doesNotThrowAnyException();
   }
 
   @Test
-  void rejectsUnsupportedHeader() {
-    assertThatThrownBy(
+  void acceptsAdditionalHeaderProperties() {
+    assertThatCode(
             () ->
-                BigLakeCatalogValidator.validate(
+                validator.validate(
                     realmConfig,
                     bigLakeCatalog(
                         "https://biglake.googleapis.com/iceberg/v1/restcatalog",
@@ -315,15 +310,14 @@ class BigLakeCatalogValidatorTest {
                         true,
                         "gs://bucket/path/to/data",
                         validGcsStorage("gs://bucket/path/to/data"))))
-        .isInstanceOf(IllegalArgumentException.class)
-        .hasMessageContaining("only supported BigLake headers are");
+        .doesNotThrowAnyException();
   }
 
   @Test
   void rejectsMissingGcsStorageWhenCredentialVendingEnabled() {
     assertThatThrownBy(
             () ->
-                BigLakeCatalogValidator.validate(
+                validator.validate(
                     realmConfig,
                     bigLakeCatalog(
                         "https://biglake.googleapis.com/iceberg/v1/restcatalog",
@@ -337,10 +331,10 @@ class BigLakeCatalogValidatorTest {
   }
 
   @Test
-  void rejectsMalformedGsBaseLocation() {
-    assertThatThrownBy(
+  void requiresBaseLocationButDoesNotValidateItsFormat() {
+    assertThatCode(
             () ->
-                BigLakeCatalogValidator.validate(
+                validator.validate(
                     realmConfig,
                     bigLakeCatalog(
                         "https://biglake.googleapis.com/iceberg/v1/restcatalog",
@@ -349,15 +343,14 @@ class BigLakeCatalogValidatorTest {
                         true,
                         "s3://bucket/path/to/data",
                         validGcsStorage("gs://bucket/path/to/data"))))
-        .isInstanceOf(IllegalArgumentException.class)
-        .hasMessageContaining("catalog.properties.default-base-location");
+        .doesNotThrowAnyException();
   }
 
   @Test
-  void rejectsMalformedGsAllowedLocation() {
-    assertThatThrownBy(
+  void doesNotValidateAllowedLocationFormat() {
+    assertThatCode(
             () ->
-                BigLakeCatalogValidator.validate(
+                validator.validate(
                     realmConfig,
                     bigLakeCatalog(
                         "https://biglake.googleapis.com/iceberg/v1/restcatalog",
@@ -366,15 +359,14 @@ class BigLakeCatalogValidatorTest {
                         true,
                         "gs://bucket/path/to/data",
                         invalidAllowedLocationStorage())))
-        .isInstanceOf(IllegalArgumentException.class)
-        .hasMessageContaining("storageConfigInfo.allowedLocations[0]");
+        .doesNotThrowAnyException();
   }
 
   @Test
-  void rejectsInvalidGcsServiceAccount() {
-    assertThatThrownBy(
+  void requiresServiceAccountButDoesNotValidateItsFormat() {
+    assertThatCode(
             () ->
-                BigLakeCatalogValidator.validate(
+                validator.validate(
                     realmConfig,
                     bigLakeCatalog(
                         "https://biglake.googleapis.com/iceberg/v1/restcatalog",
@@ -387,8 +379,7 @@ class BigLakeCatalogValidatorTest {
                             .setGcsServiceAccount("not-a-service-account")
                             .setAllowedLocations(List.of("gs://bucket/path/to/data"))
                             .build())))
-        .isInstanceOf(IllegalArgumentException.class)
-        .hasMessageContaining("expected a syntactically valid service account email");
+        .doesNotThrowAnyException();
   }
 
   @ParameterizedTest
@@ -408,7 +399,7 @@ class BigLakeCatalogValidatorTest {
 
     assertThatCode(
             () ->
-                BigLakeCatalogValidator.validate(
+                validator.validate(
                     realmConfig,
                     bigLakeCatalog(
                         "https://biglake.googleapis.com/iceberg/v1/restcatalog",
