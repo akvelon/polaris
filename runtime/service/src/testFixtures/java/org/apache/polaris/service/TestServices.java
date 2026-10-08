@@ -32,6 +32,7 @@ import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.Date;
+import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
@@ -69,6 +70,7 @@ import org.apache.polaris.core.secrets.UserSecretsManager;
 import org.apache.polaris.core.secrets.UserSecretsManagerFactory;
 import org.apache.polaris.core.storage.cache.StorageCredentialCache;
 import org.apache.polaris.core.storage.cache.StorageCredentialCacheConfig;
+import org.apache.polaris.service.admin.BigLakeCatalogValidator;
 import org.apache.polaris.service.admin.PolarisAdminService;
 import org.apache.polaris.service.admin.PolarisServiceImpl;
 import org.apache.polaris.service.admin.api.PolarisCatalogsApi;
@@ -559,7 +561,8 @@ public record TestServices(
                     serviceIdentityProvider,
                     principal,
                     authorizer,
-                    reservedProperties);
+                    reservedProperties,
+                    List.of(new BigLakeCatalogValidator()));
             return new PolarisCatalogsApi(
                 new PolarisServiceImpl(
                     realmConfig, reservedProperties, adminService, serviceIdentityProvider));

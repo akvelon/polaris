@@ -25,6 +25,8 @@ import static org.apache.polaris.service.catalog.common.ExceptionUtils.notFoundE
 
 import com.google.common.base.Strings;
 import jakarta.enterprise.context.RequestScoped;
+import jakarta.enterprise.inject.Any;
+import jakarta.enterprise.inject.Instance;
 import jakarta.inject.Inject;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -162,6 +164,7 @@ public class PolarisAdminService {
   private final UserSecretsManager userSecretsManager;
   private final ServiceIdentityProvider serviceIdentityProvider;
   private final ReservedProperties reservedProperties;
+  private final Iterable<CatalogConfigValidator> catalogConfigValidators;
 
   @Inject
   public PolarisAdminService(
@@ -172,7 +175,51 @@ public class PolarisAdminService {
       @NonNull ServiceIdentityProvider serviceIdentityProvider,
       @NonNull PolarisPrincipal principal,
       @NonNull PolarisAuthorizer authorizer,
+      @NonNull ReservedProperties reservedProperties,
+      @Any Instance<CatalogConfigValidator> catalogConfigValidators) {
+    this(
+        callContext,
+        resolutionManifestFactory,
+        metaStoreManager,
+        userSecretsManager,
+        serviceIdentityProvider,
+        principal,
+        authorizer,
+        reservedProperties,
+        (Iterable<CatalogConfigValidator>) catalogConfigValidators);
+  }
+
+  public PolarisAdminService(
+      @NonNull CallContext callContext,
+      @NonNull ResolutionManifestFactory resolutionManifestFactory,
+      @NonNull PolarisMetaStoreManager metaStoreManager,
+      @NonNull UserSecretsManager userSecretsManager,
+      @NonNull ServiceIdentityProvider serviceIdentityProvider,
+      @NonNull PolarisPrincipal principal,
+      @NonNull PolarisAuthorizer authorizer,
       @NonNull ReservedProperties reservedProperties) {
+    this(
+        callContext,
+        resolutionManifestFactory,
+        metaStoreManager,
+        userSecretsManager,
+        serviceIdentityProvider,
+        principal,
+        authorizer,
+        reservedProperties,
+        List.of());
+  }
+
+  public PolarisAdminService(
+      @NonNull CallContext callContext,
+      @NonNull ResolutionManifestFactory resolutionManifestFactory,
+      @NonNull PolarisMetaStoreManager metaStoreManager,
+      @NonNull UserSecretsManager userSecretsManager,
+      @NonNull ServiceIdentityProvider serviceIdentityProvider,
+      @NonNull PolarisPrincipal principal,
+      @NonNull PolarisAuthorizer authorizer,
+      @NonNull ReservedProperties reservedProperties,
+      Iterable<CatalogConfigValidator> catalogConfigValidators) {
     this.callContext = callContext;
     this.realmConfig = callContext.getRealmConfig();
     this.resolutionManifestFactory = resolutionManifestFactory;
@@ -182,6 +229,13 @@ public class PolarisAdminService {
     this.userSecretsManager = userSecretsManager;
     this.serviceIdentityProvider = serviceIdentityProvider;
     this.reservedProperties = reservedProperties;
+    this.catalogConfigValidators = catalogConfigValidators;
+  }
+
+  private void validateCatalogConfiguration(Catalog catalog) {
+    for (CatalogConfigValidator validator : catalogConfigValidators) {
+      validator.validate(realmConfig, catalog);
+    }
   }
 
   private PolarisCallContext getCurrentPolarisContext() {
@@ -823,6 +877,7 @@ public class PolarisAdminService {
     Catalog catalog = catalogRequest.getCatalog();
 
     CatalogEntity entity = CatalogEntity.fromCatalog(realmConfig, catalog);
+    validateCatalogConfiguration(catalog);
 
     checkArgument(entity.getId() == -1, "Entity to be created must have no ID assigned");
 
@@ -1035,8 +1090,7 @@ public class PolarisAdminService {
     }
     CatalogEntity updatedEntity = updateBuilder.build();
 
-    BigLakeCatalogValidator.validate(
-        realmConfig, updatedEntity.asCatalog(getServiceIdentityProvider()));
+    validateCatalogConfiguration(updatedEntity.asCatalog(getServiceIdentityProvider()));
     validateUpdateCatalogDiffOrThrow(currentCatalogEntity, updatedEntity);
 
     if (catalogOverlapsWithExistingCatalog(updatedEntity)) {
