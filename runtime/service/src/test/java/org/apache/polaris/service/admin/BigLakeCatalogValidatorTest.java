@@ -91,8 +91,7 @@ class BigLakeCatalogValidatorTest {
                     .build())
             .build();
 
-    assertThatCode(() -> validator.validate(realmConfig, catalog))
-        .doesNotThrowAnyException();
+    assertThatCode(() -> validator.validate(realmConfig, catalog)).doesNotThrowAnyException();
   }
 
   @Test
