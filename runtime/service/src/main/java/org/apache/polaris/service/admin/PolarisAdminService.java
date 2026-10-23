@@ -1095,6 +1095,8 @@ public class PolarisAdminService {
     }
     CatalogEntity updatedEntity = updateBuilder.build();
 
+    BigLakeCatalogValidator.validate(
+        realmConfig, updatedEntity.asCatalog(getServiceIdentityProvider()));
     validateUpdateCatalogDiffOrThrow(currentCatalogEntity, updatedEntity);
 
     if (mechanism != null) {
